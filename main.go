@@ -3,32 +3,62 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"log"
 	"net/http"
-	"sort"
 	"sync"
+	"time"
+
+	"github.com/cespare/xxhash/v2"
 )
 
 const (
-	maxLength       = 256
-	shardCount      = 16  // Fixed number of physical shards
-	virtualReplicas = 100 // Number of virtual nodes per shard for consistent hashing
+	maxLength  = 256
+	shardCount = 64  // Must be a power of 2 to use bitmasking
+	logBuffer  = 100 // Log buffer size to avoid blocking
 )
 
-// shard represents a single partition of the cache.
+// shard represents one partition of the cache.
 type shard struct {
 	mu   sync.RWMutex
 	data map[string]string
 }
 
-// Cache holds the physical shards and a consistent hash ring.
+// Cache is a sharded in-memory key-value store.
 type Cache struct {
 	shards []*shard
-	hash   *ConsistentHash
 }
 
-// NewCache creates a sharded cache and initializes the consistent hash ring.
+// Logger handles non-blocking logging using a buffered channel.
+type Logger struct {
+	logChan chan string
+}
+
+// NewLogger initializes the logger with a background worker.
+func NewLogger() *Logger {
+	l := &Logger{
+		logChan: make(chan string, logBuffer),
+	}
+	go l.processLogs()
+	return l
+}
+
+// processLogs continuously writes logs without blocking the main execution.
+func (l *Logger) processLogs() {
+	for msg := range l.logChan {
+		log.Println(msg)
+	}
+}
+
+// Log sends a message to the log channel.
+func (l *Logger) Log(format string, args ...interface{}) {
+	select {
+	case l.logChan <- fmt.Sprintf(format, args...):
+	default:
+		// Drop log if the channel is full to prevent blocking
+	}
+}
+
+// NewCache initializes the cache with a fixed number of shards.
 func NewCache() *Cache {
 	shards := make([]*shard, shardCount)
 	for i := 0; i < shardCount; i++ {
@@ -36,91 +66,43 @@ func NewCache() *Cache {
 			data: make(map[string]string),
 		}
 	}
-	chash := NewConsistentHash(shards, virtualReplicas)
 	return &Cache{
 		shards: shards,
-		hash:   chash,
 	}
 }
 
-// getShard returns the appropriate shard for a given key using consistent hashing.
+// getShard returns the shard responsible for the given key.
 func (c *Cache) getShard(key string) *shard {
-	return c.hash.GetShard(key)
+	hashVal := xxhash.Sum64String(key)
+	index := int(hashVal & (shardCount - 1))
+	return c.shards[index]
 }
 
-// Put inserts or updates the key-value pair in the appropriate shard.
+// Put inserts or updates the key-value pair in the cache.
 func (c *Cache) Put(key, value string) {
 	s := c.getShard(key)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.data[key] = value
+	s.mu.Unlock()
 }
 
-// Get retrieves the value for a given key from the appropriate shard.
+// Get retrieves the value for a given key.
 func (c *Cache) Get(key string) (string, bool) {
 	s := c.getShard(key)
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	val, ok := s.data[key]
-	return val, ok
-}
-
-// ConsistentHash implements a hash ring with virtual nodes.
-type ConsistentHash struct {
-	ring     []uint32          // Sorted hash ring
-	nodes    map[uint32]*shard // Mapping from virtual node hash to physical shard
-	replicas int               // Number of virtual nodes per physical shard
-}
-
-// NewConsistentHash initializes the hash ring with the given shards and number of replicas.
-func NewConsistentHash(shards []*shard, replicas int) *ConsistentHash {
-	ch := &ConsistentHash{
-		ring:     []uint32{},
-		nodes:    make(map[uint32]*shard),
-		replicas: replicas,
-	}
-	// For each physical shard, add virtual nodes to the ring.
-	for i, s := range shards {
-		for j := 0; j < replicas; j++ {
-			virtualNodeKey := fmt.Sprintf("shard-%d-replica-%d", i, j)
-			hashVal := hash(virtualNodeKey)
-			ch.ring = append(ch.ring, hashVal)
-			ch.nodes[hashVal] = s
-		}
-	}
-	// Sort the ring for efficient lookup.
-	sort.Slice(ch.ring, func(i, j int) bool {
-		return ch.ring[i] < ch.ring[j]
-	})
-	return ch
-}
-
-// GetShard returns the shard responsible for the provided key using binary search.
-func (ch *ConsistentHash) GetShard(key string) *shard {
-	if len(ch.ring) == 0 {
-		return nil
-	}
-	h := hash(key)
-	// Binary search for appropriate virtual node.
-	idx := sort.Search(len(ch.ring), func(i int) bool { return ch.ring[i] >= h })
-	// Wrap around the ring if needed.
-	if idx == len(ch.ring) {
-		idx = 0
-	}
-	return ch.nodes[ch.ring[idx]]
-}
-
-// hash computes a 32-bit FNV-1a hash for the given string.
-func hash(s string) uint32 {
-	h := fnv.New32a()
-	h.Write([]byte(s))
-	return h.Sum32()
+	value, ok := s.data[key]
+	s.mu.RUnlock()
+	return value, ok
 }
 
 func main() {
 	cache := NewCache()
+	logger := NewLogger()
 
+	// HTTP handler for /put endpoint
 	http.HandleFunc("/put", func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
 		if r.Method != http.MethodPost {
 			http.Error(w, "Only POST method allowed", http.StatusMethodNotAllowed)
 			return
@@ -135,7 +117,7 @@ func main() {
 			return
 		}
 
-		// Enforce maximum length constraints.
+		// Enforce maximum length.
 		if len(req.Key) > maxLength || len(req.Value) > maxLength {
 			http.Error(w, "Key or value exceeds maximum length", http.StatusBadRequest)
 			return
@@ -148,9 +130,15 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
+
+		duration := time.Since(start)
+		logger.Log("PUT /put key=%s value=%s took %s", req.Key, req.Value, duration)
 	})
 
+	// HTTP handler for /get endpoint
 	http.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
 		if r.Method != http.MethodGet {
 			http.Error(w, "Only GET method allowed", http.StatusMethodNotAllowed)
 			return
@@ -162,14 +150,15 @@ func main() {
 			return
 		}
 
-		if val, found := cache.Get(key); found {
+		if value, found := cache.Get(key); found {
 			resp := map[string]string{
 				"status": "OK",
 				"key":    key,
-				"value":  val,
+				"value":  value,
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
+			logger.Log("GET /get key=%s found=true took %s", key, time.Since(start))
 		} else {
 			resp := map[string]string{
 				"status":  "ERROR",
@@ -177,6 +166,7 @@ func main() {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
+			logger.Log("GET /get key=%s found=false took %s", key, time.Since(start))
 		}
 	})
 
