@@ -38,7 +38,7 @@ type Cache struct {
 	}
 }
 
-// Logger handles non-blocking logging using a buffered channel.
+/* // Logger handles non-blocking logging using a buffered channel.
 type Logger struct {
 	logChan chan string
 }
@@ -66,7 +66,7 @@ func (l *Logger) Log(format string, args ...interface{}) {
 	default:
 		// Drop log if the channel is full to prevent blocking
 	}
-}
+} */
 
 // NewCache initializes the cache with a fixed number of shards.
 func NewCache() *Cache {
@@ -163,11 +163,11 @@ func (c *Cache) GetStats() map[string]interface{} {
 
 func main() {
 	cache := NewCache()
-	logger := NewLogger()
+	// logger := NewLogger()
 
 	// HTTP handler for /put endpoint
 	http.HandleFunc("/put", func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
+		// start := time.Now()
 
 		if r.Method != http.MethodPost {
 			http.Error(w, "Only POST method allowed", http.StatusMethodNotAllowed)
@@ -183,70 +183,18 @@ func main() {
 			return
 		}
 
-		// Enforce maximum length.
-		if len(req.Key) > maxLength || len(req.Value) > maxLength {
-			http.Error(w, "Key or value exceeds maximum length", http.StatusBadRequest)
-			return
-		}
-
 		cache.Put(req.Key, req.Value)
-		resp := map[string]string{
-			"status":  "OK",
-			"message": "Key inserted/updated successfully.",
-		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-
-		duration := time.Since(start)
-		logger.Log("PUT /put key=%s value=%s took %s", req.Key, req.Value, duration)
+		json.NewEncoder(w).Encode(map[string]string{"status": "OK"})
 	})
 
-	// HTTP handler for /get endpoint
 	http.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		if r.Method != http.MethodGet {
-			http.Error(w, "Only GET method allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
 		key := r.URL.Query().Get("key")
-		if key == "" {
-			http.Error(w, "Missing key parameter", http.StatusBadRequest)
-			return
-		}
-
 		if value, found := cache.Get(key); found {
-			resp := map[string]string{
-				"status": "OK",
-				"key":    key,
-				"value":  value,
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-			logger.Log("GET /get key=%s found=true took %s", key, time.Since(start))
+			json.NewEncoder(w).Encode(map[string]string{"status": "OK", "key": key, "value": value})
 		} else {
-			resp := map[string]string{
-				"status":  "ERROR",
-				"message": "Key not found.",
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-			logger.Log("GET /get key=%s found=false took %s", key, time.Since(start))
+			json.NewEncoder(w).Encode(map[string]string{"status": "ERROR", "message": "Key not found."})
 		}
-	})
-
-	// Add stats endpoint
-	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Only GET method allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		stats := cache.GetStats()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(stats)
-		logger.Log("GET /stats took %s", time.Since(time.Now()))
 	})
 
 	fmt.Println("Server listening on port 7171...")
