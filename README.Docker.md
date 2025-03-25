@@ -1,22 +1,20 @@
-### Building and running your application
+# Docker Deployment Guide for Redis-like KV Cache
 
-When you're ready, start your application by running:
-`docker compose up --build`.
+## Local Development and Testing
 
-Your application will be available at http://localhost:7171.
+When you're ready to start your application using Docker, run:
+```bash
+docker compose up --build
+```
 
-### Deploying your application to the cloud
+Your cache service will be available at http://localhost:7171.
 
-First, build your image, e.g.: `docker build -t myapp .`.
-If your cloud uses a different CPU architecture than your development
-machine (e.g., you are on a Mac M1 and your cloud provider is amd64),
-you'll want to build the image for that platform, e.g.:
-`docker build --platform=linux/amd64 -t myapp .`.
+You can test it with simple curl commands:
 
-Then, push it to your registry, e.g. `docker push myregistry.com/myapp`.
+```bash
+# Store a key-value pair
+curl -X POST http://localhost:7171/put -H "Content-Type: application/json" -d '{"key": "key", "value": "value"}'
 
-Consult Docker's [getting started](https://docs.docker.com/go/get-started-sharing/)
-docs for more detail on building and pushing.
-
-### References
-* [Docker's Go guide](https://docs.docker.com/language/golang/)
+# Retrieve a value
+curl http://localhost:7171/get?key=key
+```

@@ -5,37 +5,38 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"runtime"
+
+	// "runtime"
 	"sync"
-	"sync/atomic"
-	"time"
+	// "sync/atomic"
+	// "time"
 
 	"github.com/cespare/xxhash/v2"
 )
 
 const (
-	maxLength  = 256
-	shardCount = 64  // Must be a power of 2 to use bitmasking
-	logBuffer  = 100 // Log buffer size to avoid blocking
+	maxLength  = 256 // Maximum length for keys and values
+	shardCount = 64  // Number of shards (must be power of 2)
+	// logBuffer  = 100 // Size of logging buffer
 )
 
-// shard represents one partition of the cache.
+// A Shard Represents a single cache partition with its own lock and data
 type shard struct {
-	mu     sync.RWMutex
-	data   map[string]string
-	hits   int64
-	misses int64
-	access int64
+	mu   sync.RWMutex
+	data map[string]string
+	// hits   int64 // Counter for cache hits
+	// misses int64 // Counter for cache misses
+	// access int64 // Total access counter
 }
 
-// Cache is a sharded in-memory key-value store.
+// Main cache structure holding all shards and global stats
 type Cache struct {
 	shards []*shard
-	stats  struct {
-		startTime time.Time
-		putCount  int64
-		getCount  int64
-	}
+	// stats  struct {
+	// 	startTime time.Time
+	// 	putCount  int64
+	// 	getCount  int64
+	// }
 }
 
 /* // Logger handles non-blocking logging using a buffered channel.
@@ -80,89 +81,90 @@ func NewCache() *Cache {
 	cache := &Cache{
 		shards: shards,
 	}
-	cache.stats.startTime = time.Now()
+	// cache.stats.startTime = time.Now()
 
 	return cache
 }
 
-// getShard returns the shard responsible for the given key.
+// getShard determines which shard handles a given key using xxHash
 func (c *Cache) getShard(key string) *shard {
 	hashVal := xxhash.Sum64String(key)
 	index := int(hashVal & (shardCount - 1))
 	return c.shards[index]
 }
 
-// Put inserts or updates the key-value pair in the cache.
+// Put stores a key-value pair in the appropriate shard
 func (c *Cache) Put(key, value string) {
 	s := c.getShard(key)
 	s.mu.Lock()
 	s.data[key] = value
 	s.mu.Unlock()
 
-	atomic.AddInt64(&c.stats.putCount, 1)
+	// atomic.AddInt64(&c.stats.putCount, 1)
 }
 
-// Get retrieves the value for a given key.
+// Get retrieves a value by key from the appropriate shard
 func (c *Cache) Get(key string) (string, bool) {
 	s := c.getShard(key)
 	s.mu.RLock()
-	atomic.AddInt64(&s.access, 1)
+	// atomic.AddInt64(&s.access, 1)
 	value, ok := s.data[key]
 
-	if ok {
-		atomic.AddInt64(&s.hits, 1)
-	} else {
-		atomic.AddInt64(&s.misses, 1)
-	}
+	// if ok {
+	// 	atomic.AddInt64(&s.hits, 1)
+	// } else {
+	// 	atomic.AddInt64(&s.misses, 1)
+	// }
 
 	s.mu.RUnlock()
-	atomic.AddInt64(&c.stats.getCount, 1)
+	// atomic.AddInt64(&c.stats.getCount, 1)
 
 	return value, ok
 }
 
-// GetStats returns cache statistics
-func (c *Cache) GetStats() map[string]interface{} {
-	var totalItems, hits, misses int64
+// GetStats returns current cache metrics and performance statistics
+// func (c *Cache) GetStats() map[string]interface{} {
+// 	var totalItems, hits, misses int64
 
-	for _, s := range c.shards {
-		s.mu.RLock()
-		totalItems += int64(len(s.data))
-		hits += atomic.LoadInt64(&s.hits)
-		misses += atomic.LoadInt64(&s.misses)
-		s.mu.RUnlock()
-	}
+// 	for _, s := range c.shards {
+// 		s.mu.RLock()
+// 		totalItems += int64(len(s.data))
+// 		// hits += atomic.LoadInt64(&s.hits)
+// 		// misses += atomic.LoadInt64(&s.misses)
+// 		s.mu.RUnlock()
+// 	}
 
-	putCount := atomic.LoadInt64(&c.stats.putCount)
-	getCount := atomic.LoadInt64(&c.stats.getCount)
-	uptime := time.Since(c.stats.startTime).Seconds()
+// 	// putCount := atomic.LoadInt64(&c.stats.putCount)
+// 	// getCount := atomic.LoadInt64(&c.stats.getCount)
+// 	// uptime := time.Since(c.stats.startTime).Seconds()
 
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
+// 	var m runtime.MemStats
+// 	runtime.ReadMemStats(&m)
 
-	hitRate := 0.0
-	if hits+misses > 0 {
-		hitRate = float64(hits) * 100.0 / float64(hits+misses)
-	}
+// 	hitRate := 0.0
+// 	if hits+misses > 0 {
+// 		hitRate = float64(hits) * 100.0 / float64(hits+misses)
+// 	}
 
-	return map[string]interface{}{
-		"total_items":          totalItems,
-		"hit_rate":             hitRate,
-		"memory_usage_percent": float64(m.Alloc) * 100.0 / float64(m.Sys),
-		"put_count":            putCount,
-		"get_count":            getCount,
-		"hit_count":            hits,
-		"miss_count":           misses,
-		"uptime_seconds":       uptime,
-		"requests_per_second":  float64(putCount+getCount) / uptime,
-		"allocated_memory_mb":  float64(m.Alloc) / 1024 / 1024,
-		"system_memory_mb":     float64(m.Sys) / 1024 / 1024,
-		"evicted_count":        0, // No eviction implemented yet
-	}
-}
+// 	return map[string]interface{}{
+// 		"total_items":          totalItems,
+// 		"hit_rate":             hitRate,
+// 		"memory_usage_percent": float64(m.Alloc) * 100.0 / float64(m.Sys),
+// 		// "put_count":            putCount,
+// 		// "get_count":            getCount,
+// 		"hit_count":            hits,
+// 		"miss_count":           misses,
+// 		// "uptime_seconds":       uptime,
+// 		// "requests_per_second":  float64(putCount+getCount) / uptime,
+// 		"allocated_memory_mb":  float64(m.Alloc) / 1024 / 1024,
+// 		"system_memory_mb":     float64(m.Sys) / 1024 / 1024,
+// 		"evicted_count":        0, // No eviction implemented yet
+// 	}
+// }
 
 func main() {
 	cache := NewCache()
+	// logger := NewLogger()
 	// logger := NewLogger()
 
 	// HTTP handler for /put endpoint
@@ -188,6 +190,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"status": "OK"})
 	})
 
+	// Handle GET requests - retrieve values by key
 	http.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.Query().Get("key")
 		if value, found := cache.Get(key); found {
