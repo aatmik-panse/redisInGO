@@ -1,0 +1,69 @@
+# Python virtual environments
+venv/
+env/
+.venv/
+.env/
+.python-version
+
+# Go build artifacts
+/bin/
+/pkg/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go Dependency directories
+vendor/
+
+# Go local module cache
+*.sum
+
+# Docker artifacts
+.docker/
+docker/data/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Load testing and benchmark files
+/loadtest-results/
+*.bench
+*.pprof
+*.pdf
+*.png
+*.svg
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+.temp/
+/tmp/put_payload.json
+
+# Binary
+/server
+/kvcache
+/goredis
+/go-wrk
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# User-specific configuration
+user.config.json
