@@ -8,86 +8,77 @@ This project implements an in-memory key-value cache service with enhanced perfo
 The service is containerized using Docker and listens on port 7171.
 
 ## Architecture
-- **Sharded Design**: Uses 64 shards (configurable) to distribute keys and improve concurrency
+- **Sharded Design**: Uses 512 shards (configurable) to distribute keys and improve concurrency
 - **Consistent Hashing**: Uses xxHash algorithm for efficient key distribution 
-- **Atomic Counters**: Thread-safe statistics using atomic operations
+- **Memory Management**: Automatic eviction when memory usage exceeds threshold
+- **LRU Eviction**: Least Recently Used items are evicted first when memory is constrained
 - **Read-Write Locks**: Per-shard locks to maximize concurrent access
 
-## API Endpoints
+## Protocol
+
+The service uses a binary protocol for communication:
 
 ### PUT Operation
-- **HTTP Method**: POST
-- **Endpoint**: `/put`
-- **Request Body**:
-  ```json
-  {
-    "key": "string (max 256 characters)",
-    "value": "string (max 256 characters)"
-  }
-  ```
-- **Response**:
-  ```json
-  {
-    "status": "OK"
-  }
-  ```
+- Command Byte: `0x01`
+- Format: `0x01 + [2-byte key length] + [2-byte value length] + [key bytes] + [value bytes]`
+- Response: `0x01` for success, `0x02 + [2-byte error message length] + [error message]` for failure
 
 ### GET Operation
-- **HTTP Method**: GET
-- **Endpoint**: `/get?key=yourkey`
-- **Response (found)**:
-  ```json
-  {
-    "status": "OK",
-    "key": "yourkey",
-    "value": "yourvalue"
-  }
-  ```
-- **Response (not found)**:
-  ```json
-  {
-    "status": "ERROR",
-    "message": "Key not found."
-  }
-  ```
+- Command Byte: `0x02`
+- Format: `0x02 + [2-byte key length] + [key bytes]`
+- Success Response: `0x01 + [2-byte value length] + [value bytes]`
+- Failure Response: `0x02 + [2-byte error message length] + [error message]`
 
-## Installation
+## Docker Deployment
 
 ### Using Docker
+
+```bash
+# Build the Docker image
+docker build -t goredis:latest .
+
+# Run the container
+docker run -p 7171:7171 goredis:latest
+```
+
+### Using Docker Compose
 
 ```bash
 # Build and run with Docker Compose
 docker compose up --build
 
-# Or build and run manually
-docker build -t goredis:latest .
-docker run -p 7171:7171 goredis:latest
+# Run in detached mode
+docker compose up -d
+
+# Stop the service
+docker compose down
 ```
 
-The server will be available at http://localhost:7171.
+The server will be available at port 7171 on your host machine.
 
-## Load Testing
+## Testing Your Deployment
 
-The project includes a load testing tool in the `test` directory for benchmarking performance.
+You can test the binary protocol with simple commands:
 
 ```bash
-# Navigate to the test directory
-cd test
+# Store a key-value pair (key1=value1)
+echo -e '\x01\x00\x04\x00\x06key1value1' | nc localhost 7171
 
-# Run the load test
-go run test.go -n 50000 -c 200 -g 70
+# Retrieve a value for key1
+echo -e '\x02\x00\x04key1' | nc localhost 7171
 ```
 
-See [USAGE.md](USAGE.md) for more detailed instructions and load test parameters.
+## Configuration
 
-## Performance Considerations
+The service has the following configurable constants in the code:
 
-- The cache uses sharding to distribute keys across multiple partitions
-- Each shard has its own mutex to allow for concurrent operations on different shards
-- xxHash provides fast and high-quality hashing for key distribution
-- Atomic operations ensure thread-safe statistics collection
+- `maxLength`: Maximum length for keys and values (default: 256)
+- `shardCount`: Number of shards for distributing keys (default: 512)
+- `ttlSeconds`: Default TTL for cached items in seconds (default: 120)
+- `maxMemoryPct`: Maximum memory usage percentage before eviction (default: 70)
 
 
-## For Docker Deployment
+## For More Information
 
-See [README.Docker.md](README.Docker.md) for detailed Docker deployment instructions.
+- [USAGE.md](USAGE.md) - Detailed usage instructions
+- [README.Docker.md](README.Docker.md) - Additional Docker deployment notes

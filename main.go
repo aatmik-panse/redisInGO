@@ -85,14 +85,14 @@ func getTotalMemory() uint64 {
 		log.Printf("Error retrieving memory info: %v", err)
 		return defaultMemory
 	}
-
+	// log.Printf("Total memory: %d bytes", vmStat.Total)
 	return vmStat.Total
 }
 
 func monitorMemoryUsage(shards []*shard) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-	log.Println("Monitoring memory usage...")
+	// log.Println("Monitoring memory usage...")
 
 	for range ticker.C {
 		var memStats runtime.MemStats
@@ -112,7 +112,7 @@ func monitorMemoryUsage(shards []*shard) {
 func evictAcrossShards(shards []*shard, threshold uint64) {
 	// Calculate items to evict per shard
 	targetEviction := 50 // Start with a small batch
-
+	log.Printf("Evicting items to reduce memory usage. Target threshold: %d MB", threshold/1024/1024)
 	for {
 		var memStats runtime.MemStats
 		runtime.ReadMemStats(&memStats)
@@ -141,13 +141,14 @@ func evictAcrossShards(shards []*shard, threshold uint64) {
 		// Increase batch size for faster eviction if memory is still high
 		targetEviction = int(math.Min(float64(targetEviction*2), 5000))
 		runtime.GC()
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(60 * time.Millisecond)
 	}
 }
 
 func (s *shard) evictBatch(count int) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	log.Printf("Evicting %d items from shard", count)
 
 	if s.lru.Len() == 0 {
 		return 0
@@ -171,6 +172,7 @@ func (s *shard) evictBatch(count int) int {
 }
 
 func (s *shard) startEviction() {
+	// log.Printf("Starting eviction for shard")
 	ticker := time.NewTicker(cleanupEvery)
 	defer ticker.Stop()
 	for range ticker.C {
