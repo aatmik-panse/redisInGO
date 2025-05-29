@@ -14,7 +14,7 @@ RUN go mod download
 COPY *.go ./
 
 # Build the application (CGO disabled for static binary)
-RUN CGO_ENABLED=0 go build -o /kvcache
+RUN CGO_ENABLED=0 go build -o /redis-go
 
 # Final stage (runtime, based on Ubuntu)
 FROM ubuntu:22.04
@@ -24,13 +24,13 @@ WORKDIR /
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from the build stage
-COPY --from=build /kvcache /kvcache
+COPY --from=build /redis-go /redis-go
 
 # Create a non-root user and group
 RUN useradd -m -s /bin/bash appuser
 
 # Set ownership
-RUN chown -R appuser:appuser /kvcache
+RUN chown -R appuser:appuser /redis-go
 
 # Switch to non-root user
 USER appuser
@@ -39,4 +39,4 @@ USER appuser
 EXPOSE 7171
 
 # Run the application
-ENTRYPOINT ["/kvcache"]
+ENTRYPOINT ["/redis-go"]
