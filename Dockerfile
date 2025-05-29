@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# Build stage
-FROM golang:1.19-alpine AS build
+# Build stage (based on Ubuntu)
+FROM golang:1.19 AS build
 WORKDIR /app
 
 # Copy go.mod and go.sum files
@@ -13,24 +13,24 @@ RUN go mod download
 # Copy source code
 COPY *.go ./
 
-# Build the application
+# Build the application (CGO disabled for static binary)
 RUN CGO_ENABLED=0 go build -o /kvcache
 
-# Final stage
-FROM alpine:latest
+# Final stage (runtime, based on Ubuntu)
+FROM ubuntu:22.04
 WORKDIR /
 
 # Install CA certificates for HTTPS connections
-RUN apk --no-cache add ca-certificates
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from the build stage
 COPY --from=build /kvcache /kvcache
 
 # Create a non-root user and group
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN useradd -m -s /bin/bash appuser
 
 # Set ownership
-RUN chown -R appuser:appgroup /kvcache
+RUN chown -R appuser:appuser /kvcache
 
 # Switch to non-root user
 USER appuser
